@@ -1,8 +1,10 @@
 (ns japan-sat.core
   (:gen-class)
   (:require [rolling-stones.core :as sat :refer [! at-least at-most exactly AND OR NOT]]
-            [clojure.string :as s]
-            [japan-sat.print :refer [parse-result]])
+            [clojure.string :as str]
+            [japan-sat.print :refer [parse-result]]
+            [clojure.spec :as s]
+            [clojure.spec.test :as stest])
   (:use [japan-sat.parse]))
 
 (defn spec-permutations
@@ -18,8 +20,23 @@
 
 (defn assoc-range
   [vec [offset length] value]
-  (reduce #(assoc %1 (- %2 1) value) vec
-          (range offset (+ offset length))))
+  (conj (reduce #(assoc %1 (- %2 1) value) vec
+          (range offset (+ offset length))) value))
+
+(s/def ::offset-length (s/cat :offset int? :length int?))
+
+(s/fdef assoc-range
+  :args (s/and
+          (s/cat :vec vector? :offset-length (s/spec ::offset-length) :value any?)
+          #(< 0 (-> % :offset-length :offset))
+          #(>= (count (:vec %))
+               (+ (-> % :offset-length :offset)
+                  (-> % :offset-length :length))))
+  :ret vector?
+  :fn (s/and
+        #(print %)
+        #(= (count (-> % :args :vector))
+            (count (:ret %)))))
 
 (defn unfold-permutation
   "Unfold a permutation to a row of black (0) and white (1) pixels."
@@ -31,12 +48,16 @@
 (defn pixels->constraint
   "Map a row of pixels to a SAT constraint."
   [pixels get-cell]
+  {:pre  [(vector? pixels)
+          (not (empty? pixels))
+          (fn? get-cell)]
+   :post [(record? %)]}
   (apply AND (map-indexed
-    (fn [idx color]
-      (if (== color 0)
-        (! (get-cell idx))
-        (get-cell idx)))
-    pixels)))
+               (fn [idx color]
+                 (if (== color 0)
+                   (! (get-cell idx))
+                   (get-cell idx)))
+               pixels)))
 
 (defn unfold-spec
   "Unfold a spec into all possible pixels."
